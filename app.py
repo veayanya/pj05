@@ -241,6 +241,7 @@ class FormDoc:
         self.cell_ts = set()
         self._convert_activex()
         self._add_cell_runs()
+        self._mark_editable()
         self.analyze()
 
     # ----- default gaya dari styles.xml --------------------------------
@@ -349,6 +350,64 @@ class FormDoc:
                     t.text = ""
                     t.set(XML_SPACE, "preserve")
                     self.cell_ts.add(t)
+
+    def _mark_editable(self):
+        """Teks tetap yang juga boleh diubah: isi tabel isian (nama mata kuliah, SKS, ...)
+        dan teks di blok tanda tangan (jabatan, nama pejabat)."""
+        self.edit_ps = {}                       # paragraf -> label
+        for tbl in self.root.iter(q("tbl")):
+            rows = tbl.findall(q("tr"))
+            if len(rows) < 2:
+                continue
+            hc = rows[0].findall(q("tc"))
+            head = [self._cell_text(c) for c in hc]
+            made = any(t in self.cell_ts for t in tbl.iter(q("t")))
+            if not (made or (head and re.fullmatch(r"no\.?", head[0].strip(), re.I))):
+                continue
+            for tr in rows[1:]:
+                for ci, tc in enumerate(tr.findall(q("tc"))):
+                    ps = tc.findall(q("p"))
+                    if len(ps) != 1 or tc.find(q("tbl")) is not None:
+                        continue
+                    txt = self._cell_text(tc)
+                    if not txt or (ci == 0 and re.fullmatch(r"[\d.\s]+", txt)):
+                        continue
+                    if self._editable_ok(ps[0]):
+                        self.edit_ps[ps[0]] = head[ci] if ci < len(head) and head[ci] else "Isi"
+        start = re.compile(r"^\s*(Mengetahui|Menyetujui|Pemohon)\b|^[A-Za-z .]{2,30},\s*\.{4,}")
+        on = not self.edit_ps and None          # blok tanda tangan hanya untuk formulir bertabel isian
+        if on is None:
+            return
+        on = False
+        for p in self.root.iter(q("p")):
+            if any(a.tag == q("tc") for a in p.iterancestors()):
+                continue
+            txt = self._ptext(p).strip()
+            if not on and start.match(txt):
+                on = True
+            if on and txt and self._editable_ok(p) and not TOKEN.search(txt) and not re.search(r"\w\s*:", txt):
+                self.edit_ps[p] = "Teks tanda tangan"
+
+    def _editable_ok(self, p):
+        for r in p.iter(q("r")):
+            for c in r:
+                if c.tag not in (q("rPr"), q("t")):
+                    return False
+        return bool(self._ptext(p).strip())
+
+    def _whole_parts(self, p, label):
+        ts = list(p.iter(q("t")))
+        V = "".join(t.text or "" for t in ts)
+        lead = V[:len(V) - len(V.lstrip())]
+        trail = V[len(V.rstrip()):]
+        s = Slot("text", V.strip())
+        s.prefill = s.preset = True
+        s.label = label
+        res, first = {}, True
+        for t in ts:
+            res[t] = []
+        res[ts[0]] = ([lead] if lead else []) + [s] + ([trail] if trail else [])
+        return res, s
 
     def _field_parts(self, p):
         """Isian gaya 'Label : nilai' (termasuk 'NIM : 123 <tab> NIDN :').
@@ -493,7 +552,12 @@ class FormDoc:
                     if idx < len(hc):
                         header = self._cell_text(hc[idx])
 
-            over = self._field_parts(p) if (tc is None and not has_br) else None
+            over = None
+            if p in self.edit_ps:
+                over, es = self._whole_parts(p, self.edit_ps[p])
+                es.full = tc is not None
+            elif tc is None and not has_br:
+                over = self._field_parts(p)
             pslots = []
             for t in ts:
                 txt = t.text or ""
@@ -1449,6 +1513,7 @@ min-width:8ch;max-width:100%;border-radius:3px 3px 0 0}
 .fld:focus{background:#ffee99;border-bottom:1.5px solid #2563eb}
 .fld.filled{background:#e6f6e9;border-bottom-color:#16a34a}
 .fld.full{width:100%;display:block}
+.paper .fld{text-align:inherit}
 td .fld.full{text-align:inherit;padding:0 2px}
 .fld.date{min-width:0;width:11.5em;font-size:.9em}
 .cb{width:1.15em;height:1.15em;vertical-align:-.18em;accent-color:#2563eb;cursor:pointer;margin:0 2px}
@@ -1462,7 +1527,7 @@ td .fld.full{text-align:inherit;padding:0 2px}
   <div class="t">📄 {{ name }}</div>
   <div class="p" id="prog"></div>
   <label class="opt" title="Tulisan dipaskan di panjang titik-titik, font mengecil otomatis jika terlalu panjang"><input type="checkbox" name="fit_dots" value="1" checked> Pas di titik-titik</label>
-  <label class="opt" title="Rapatkan spasi/margin/font seperlunya agar seluruh formulir muat 1 halaman"><input type="checkbox" name="fit_page" value="1" checked> Muat 1 halaman</label>
+  <label class="opt" title="Rapatkan spasi/margin/font seperlunya agar seluruh formulir muat 1 halaman"><input type="checkbox" name="fit_page" value="1"> Muat 1 halaman</label>
   <a class="btn sec" href="{{ url_for('home') }}">Ganti file</a>
   <button type="button" class="btn sec" id="reset">Kosongkan</button>
   <button type="submit" class="btn main">⬇ Unduh Word</button>
