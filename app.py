@@ -914,8 +914,12 @@ class FormDoc:
         """Pecah satu <w:t> berisi slot menjadi potongan teks / tab penuntun titik."""
         parts = self.tparts[t]
         res, buf, pos = [], "", st["pos"]
+        lead_trim = False
         for i, x in enumerate(parts):
             if isinstance(x, str):
+                if lead_trim and not buf:           # setelah titik-titik dibuang, rapikan spasi di depan
+                    x = x.lstrip()
+                lead_trim = False
                 buf += x
                 pos += tw(x, size, bold)
                 continue
@@ -926,6 +930,9 @@ class FormDoc:
             elif x.kind == "text" and not x.blank:
                 v = clean_value(form.get(x.id, ""))
                 if not v:
+                    if getattr(self, "drop_empty", False):      # titik-titik kosong dibuang
+                        lead_trim = True
+                        continue
                     buf += x.orig
                     pos += tw(x.orig, size, bold)
                     continue
@@ -1059,7 +1066,8 @@ class FormDoc:
             tb.set(q("leader"), "dot")
             tb.set(q("pos"), str(pos))
 
-    def fill(self, form, fit_dots=True):
+    def fill(self, form, fit_dots=True, drop_empty=False):
+        self.drop_empty = drop_empty
         for p, ts in self.para_ts.items():
             cont = self._avail_pt(p)
             ppr = p.find(q("pPr"))
@@ -1730,6 +1738,7 @@ table.dyn tr.dr>td:first-child{position:relative}
   <details class="opts"><summary>⚙ <span class="lbl">Pengaturan</span></summary>
     <div class="pop">
       <label><input type="checkbox" name="fit_dots" value="1" checked><span>Pas di titik-titik<small>Tulisan dipaskan pada garis titik; font mengecil otomatis jika terlalu panjang.</small></span></label>
+      <label><input type="checkbox" name="drop_empty" value="1" checked><span>Hapus titik-titik yang kosong<small>Titik-titik yang tidak diisi dihilangkan di file Word. Matikan jika formulir akan ditulis tangan.</small></span></label>
       <label><input type="checkbox" name="fit_page" value="1"><span>Muat 1 halaman<small>Padatkan spasi/margin/font agar semua muat satu halaman. Biarkan mati untuk mengikuti halaman Word asli.</small></span></label>
     </div></details>
   <button type="button" class="btn ghost" id="reset">Kosongkan</button>
@@ -1952,7 +1961,8 @@ def download():
     except Exception:
         return home_page("Sesi formulir tidak valid. Upload ulang file .docx.", 400)
     name = os.path.basename(request.form.get("_name") or "formulir.docx")
-    doc.fill(request.form, fit_dots=bool(request.form.get("fit_dots")))
+    doc.fill(request.form, fit_dots=bool(request.form.get("fit_dots")),
+             drop_empty=bool(request.form.get("drop_empty")))
     if request.form.get("fit_page"):
         doc.fit_one_page()
     stem = re.sub(r"\.docx$", "", name, flags=re.I)
