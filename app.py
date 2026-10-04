@@ -32,7 +32,15 @@ from lxml import etree
 # Konfigurasi
 # --------------------------------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
-SAMPLE = BASE_DIR / "contoh" / "FORMULIR_PENDAFTARAN_PESERTA_MAGANG.docx"
+FORMS_DIR = BASE_DIR / "formulir"
+TEMPLATES = {                      # formulir bawaan untuk yang belum punya file kosongannya
+    "pendaftaran-magang": ("Formulir Pendaftaran Peserta Magang",
+                           "Identitas mahasiswa, kelengkapan berkas, pernyataan, dan verifikasi program studi.",
+                           "FORMULIR_PENDAFTARAN_PESERTA_MAGANG.docx"),
+    "konversi-nilai": ("Form Permohonan Konversi Nilai MBKM",
+                       "Identitas, informasi kegiatan, tabel konversi mata kuliah, dokumen pendukung, dan tanda tangan.",
+                       "Form_Permohonan_Konversi_Nilai.docx"),
+}
 MAX_UPLOAD = 3 * 1024 * 1024           # 3 MB (batas body Vercel 4,5 MB; file dikirim bolak-balik sebagai base64)
 MAX_XML = 40 * 1024 * 1024             # batas ukuran document.xml setelah dekompresi
 KEEP_SECONDS = 12 * 3600               # file sementara dihapus setelah 12 jam
@@ -130,6 +138,7 @@ class Slot:
         self.prefill = False      # isian "Label : nilai" yang sudah ada nilainya (bisa diedit)
         self.nospace = False      # isian blank tanpa spasi pemisah (sel tabel)
         self.iso = None           # tanggal awal (YYYY-MM-DD) untuk date yang sudah terisi
+        self.default_today = True # date kosong diisi tanggal hari ini sebagai awal
 
 
 def tokenize(text):
@@ -409,6 +418,14 @@ class FormDoc:
         res[ts[0]] = ([lead] if lead else []) + [s] + ([trail] if trail else [])
         return res, s
 
+    def _tabbed_neighbor(self, p):
+        for nb in (p.getprevious(), p.getnext()):
+            if nb is not None and nb.tag == q("p"):
+                t = self._ptext_tabs(nb)
+                if "\t" in t and re.search(r":\s*", t):
+                    return True
+        return False
+
     def _field_parts(self, p):
         """Isian gaya 'Label : nilai' (termasuk 'NIM : 123 <tab> NIDN :').
         Mengembalikan {w:t: [teks | Slot, ...]} atau None."""
@@ -453,7 +470,7 @@ class FormDoc:
             if ve <= vs:
                 vs = ve = re_
             V = text[vs:ve]
-            if "\t" in V or (V == "" and "\t" not in text):
+            if "\t" in V or (V == "" and "\t" not in text and not self._tabbed_neighbor(p)):
                 continue
             dates = list(DATE_RE.finditer(V))
             if dates:
@@ -599,6 +616,16 @@ class FormDoc:
                     and re.fullmatch(r"[A-Za-z .]{2,30},\s*", pslots[0].before)
                     and ptxt == (pslots[0].before + pslots[0].orig).strip()):
                 pslots[0].kind = "date"
+            # "Mulai : ..... s.d. ....." -> dua pemilih tanggal (awal & akhir), tanpa isi awal
+            if (tc is None and len(pslots) == 2
+                    and all(x.kind == "text" and not x.blank and not x.preset for x in pslots)
+                    and re.fullmatch(r"\s*(s\.?\s?d\.?|sampai(\s+dengan)?|-|–)\s*",
+                                     pslots[1].before[len(pslots[0].before):] or "", re.I)):
+                head = re.match(r"\s*([^:]{1,32}?)\s*(?:\t|:)", self._ptext_tabs(p))
+                base = head.group(1).strip() if head else "Tanggal"
+                for x, lab in zip(pslots, ("awal", "akhir")):
+                    x.kind, x.preset, x.default_today = "date", True, False
+                    x.label = f"{base} – {lab}"
             # beberapa titik-titik sejajar (kolom tanda tangan) -> nama kolom dari baris di atasnya
             if (tc is None and len(pslots) >= 2
                     and all(x.kind == "text" and not x.blank and not x.preset for x in pslots)):
@@ -1360,8 +1387,9 @@ class FormDoc:
             return (f'<input type="checkbox" class="cb" name="{s.id}" '
                     f'data-group="{s.group or ""}" title="{lab}" aria-label="{lab}">')
         if s.kind == "date":
-            return (f'<input type="date" class="fld date" name="{s.id}" '
-                    f'value="{s.iso or date.today().isoformat()}" title="{lab}" aria-label="{lab}">')
+            dv = s.iso or (date.today().isoformat() if s.default_today else "")
+            return (f'<input type="date" class="fld date" name="{s.id}" data-def="{"" if s.iso else dv}" '
+                    f'value="{dv}" title="{lab}" aria-label="{lab}">')
         ph = H.escape(s.label.split(" – ")[-1], quote=True) if s.nospace else lab
         if s.full:
             style, cls = "", "fld full"
@@ -1472,6 +1500,17 @@ input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events
 .steps li{counter-increment:s;font-size:.86rem;color:var(--mut);line-height:1.4;background:var(--bg);border-radius:10px;padding:10px 10px 10px 38px;position:relative}
 .steps li::before{content:counter(s);position:absolute;left:10px;top:10px;width:20px;height:20px;border-radius:50%;background:var(--acc);color:#fff;
 font-size:.75rem;font-weight:700;display:grid;place-items:center}
+.tpl{margin-top:26px;border-top:1px solid var(--line);padding-top:20px}
+.tpl h2{font-size:1.02rem;margin:0 0 2px}
+.sub2{margin:0 0 12px;color:var(--mut);font-size:.88rem}
+.t-item{display:flex;gap:12px;align-items:center;flex-wrap:wrap;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
+.t-ico{width:38px;height:38px;border-radius:9px;background:#2b579a;color:#fff;font-weight:800;display:grid;place-items:center;flex:none}
+.t-txt{flex:1;min-width:200px;display:flex;flex-direction:column;gap:2px;font-size:.92rem}
+.t-txt span{color:var(--mut);font-size:.82rem;line-height:1.4}
+.t-act{display:flex;gap:8px;flex-wrap:wrap}
+.t-act a{text-decoration:none;font-size:.85rem;font-weight:600;padding:8px 12px;border-radius:8px;white-space:nowrap}
+.t-act .b1{background:var(--acc);color:#fff}.t-act .b1:hover{background:var(--acc-d)}
+.t-act .b2{background:var(--acc-l);color:var(--acc)}
 .row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:20px;font-size:.85rem;color:var(--mut)}
 a.sample{color:var(--acc);text-decoration:none;font-weight:600;font-size:.92rem}
 a.sample:hover{text-decoration:underline}
@@ -1494,10 +1533,16 @@ a.sample:hover{text-decoration:underline}
 <input type="file" id="file" name="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
 </form>
 <ol class="steps"><li>Upload file Word</li><li>Isi &amp; centang isiannya</li><li>Klik <b>Unduh Word</b></li></ol>
-<div class="row">
-<span>🔒 File tidak disimpan di server.</span>
-{% if has_sample %}<a class="sample" href="{{ url_for('sample') }}">Coba dengan formulir contoh →</a>{% endif %}
-</div>
+{% if templates %}
+<section class="tpl"><h2>Belum punya file formulirnya?</h2>
+<p class="sub2">Pakai formulir bawaan: isi langsung di sini, atau unduh file kosongnya.</p>
+{% for key, title, desc in templates %}
+<div class="t-item"><div class="t-ico">W</div>
+<div class="t-txt"><b>{{ title }}</b><span>{{ desc }}</span></div>
+<div class="t-act"><a class="b1" href="{{ url_for('template_fill', key=key) }}">Isi sekarang</a>
+<a class="b2" href="{{ url_for('template_download', key=key) }}">⬇ Unduh kosong</a></div></div>
+{% endfor %}</section>{% endif %}
+<div class="row"><span>🔒 File tidak disimpan di server.</span></div>
 </main>
 <div class="busy" id="busy"><div class="spin"></div><div>Membaca formulir…</div></div>
 <script>
@@ -1637,7 +1682,7 @@ document.getElementById('nextEmpty').addEventListener('click',()=>{
 });
 document.getElementById('reset').addEventListener('click',()=>{
   if(!confirm('Kosongkan semua isian dan centang?'))return;
-  texts.forEach(e=>{e.value=e.type==='date'?'{{ today }}':'';delete e.dataset.touched});
+  texts.forEach(e=>{e.value=e.type==='date'?(e.dataset.def||''):'';delete e.dataset.touched});
   checks.forEach(e=>e.checked=false);update();say('Semua isian dikosongkan');
 });
 // tutup menu pengaturan saat klik di luar
@@ -1662,7 +1707,8 @@ app.config["MAX_FORM_PARTS"] = 2000
 
 
 def home_page(error=None, status=200):
-    return render_template_string(HOME, error=error, has_sample=SAMPLE.exists()), status
+    items = [(k, v[0], v[1]) for k, v in TEMPLATES.items() if (FORMS_DIR / v[2]).exists()]
+    return render_template_string(HOME, error=error, templates=items), status
 
 
 @app.get("/")
@@ -1702,11 +1748,26 @@ def upload():
     return open_doc(f.read(), os.path.basename(f.filename))
 
 
-@app.get("/sample")
-def sample():
-    if not SAMPLE.exists():
+def template_file(key):
+    if key not in TEMPLATES:
         abort(404)
-    return open_doc(SAMPLE.read_bytes(), SAMPLE.name)
+    f = FORMS_DIR / TEMPLATES[key][2]
+    if not f.exists():
+        abort(404)
+    return f
+
+
+@app.get("/formulir/<key>")
+def template_fill(key):
+    f = template_file(key)
+    return open_doc(f.read_bytes(), f.name)
+
+
+@app.get("/formulir/<key>/unduh")
+def template_download(key):
+    f = template_file(key)
+    return send_file(f, as_attachment=True, download_name=f.name,
+                     mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 
 @app.post("/download")
