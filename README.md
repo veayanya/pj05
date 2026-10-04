@@ -28,6 +28,7 @@ Opsional:
 - `Label :` kosong (rata dengan tab) menjadi isian kosong, mis. "Total Durasi Kegiatan"
 - Tanggal seperti `6 Juli 2026` dan `Cirebon, ......` jadi pemilih tanggal
 - Sel tabel yang masih kosong menjadi isian per sel
+- **Tabel bernomor (header "No") bisa ditambah/dikurangi barisnya**: tombol **＋ Tambah baris** / **− Kurangi baris** di bawah tabel, dan tombol **×** di sisi kiri tiap baris. Nomor urut otomatis dihitung ulang, dan file Word hasilnya punya jumlah baris yang sama (1–30 baris).
 - Kotak centang ActiveX diganti ☐/☑ biasa di file hasil
 - Kolom tanda tangan bertitik-titik diberi label otomatis (Nama Pemohon, Nama Dosen Pembimbing)
 

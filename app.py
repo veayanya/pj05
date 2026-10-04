@@ -50,6 +50,8 @@ BULAN = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli",
          "Agustus", "September", "Oktober", "November", "Desember"]
 
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+W14_NS = "http://schemas.microsoft.com/office/word/2010/wordml"
+MAX_ROWS = 30                          # batas baris tabel dinamis
 R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 V_NS = "urn:schemas-microsoft-com:vml"
 NS = {"w": W_NS}
@@ -231,7 +233,7 @@ def parse_id_date(txt):
 # Dokumen formulir
 # --------------------------------------------------------------------------
 class FormDoc:
-    def __init__(self, data: bytes):
+    def __init__(self, data: bytes, rows=None):
         self.data = data
         with zipfile.ZipFile(io.BytesIO(data)) as z:
             names = z.namelist()
@@ -249,6 +251,7 @@ class FormDoc:
         self.removed_rids = set()
         self.cell_ts = set()
         self._convert_activex()
+        self._setup_dynamic(rows or {})
         self._add_cell_runs()
         self._mark_editable()
         self.analyze()
@@ -324,6 +327,80 @@ class FormDoc:
             t = etree.SubElement(nr, q("t"))
             t.text = UNCHECKED
             parent.replace(r, nr)
+
+    # ----- tabel dinamis (baris bisa ditambah / dikurangi) ---------------
+    @classmethod
+    def _row_first(cls, tr):
+        tcs = tr.findall(q("tc"))
+        return cls._cell_text(tcs[0]) if tcs else ""
+
+    def _data_rows(self, tbl):
+        """Baris isian tabel: baris setelah header yang kolom pertamanya bernomor."""
+        trs = tbl.findall(q("tr"))
+        num = [tr for tr in trs[1:] if re.fullmatch(r"\d+", self._row_first(tr))]
+        return num or trs[1:]
+
+    def _setup_dynamic(self, rows):
+        """Tabel berheader 'No' dianggap tabel dinamis. Jika jumlah baris diminta (rows[idx]),
+        baris disesuaikan: kelebihan dibuang, kekurangan disalin dari baris terakhir (dikosongkan)."""
+        self.dyn = []
+        self._dyn_ids = {}
+        for tbl in self.root.iter(q("tbl")):
+            if any(a.tag == q("tc") for a in tbl.iterancestors()):
+                continue
+            trs = tbl.findall(q("tr"))
+            tcs = trs[0].findall(q("tc")) if trs else []
+            if len(trs) < 2 or not tcs or not re.fullmatch(r"no\.?", self._cell_text(tcs[0]).strip(), re.I):
+                continue
+            idx = len(self.dyn)
+            self.dyn.append(tbl)
+            if idx in rows:
+                self._resize_rows(tbl, max(1, min(int(rows[idx]), MAX_ROWS)))
+            for ri, tr in enumerate(self._data_rows(tbl)):
+                self._dyn_ids[tr] = (idx, ri)
+
+    def _resize_rows(self, tbl, n):
+        data = self._data_rows(tbl)
+        if not data:
+            return
+        for tr in data[n:]:
+            tbl.remove(tr)
+        data = data[:n]
+        last = data[-1]
+        while len(data) < n:
+            new = self._blank_row(data[-1])
+            last.addnext(new)
+            last = new
+            data.append(new)
+        for i, tr in enumerate(data, 1):               # nomor urut ulang
+            tcs = tr.findall(q("tc"))
+            ts = list(tcs[0].iter(q("t"))) if tcs else []
+            if ts and re.fullmatch(r"\s*\d+\s*", "".join(t.text or "" for t in ts)):
+                ts[0].text = str(i)
+                for t in ts[1:]:
+                    t.text = ""
+
+    @staticmethod
+    def _blank_row(tmpl):
+        new = deepcopy(tmpl)
+        for el in new.iter(etree.Element):
+            for a in ("paraId", "textId"):
+                el.attrib.pop(f"{{{W14_NS}}}{a}", None)
+        for ci, tc in enumerate(new.findall(q("tc"))):
+            if ci == 0:
+                continue
+            ps = tc.findall(q("p"))
+            for extra in ps[1:]:
+                tc.remove(extra)
+            for p in ps[:1]:
+                for ch in list(p):
+                    if ch.tag != q("pPr"):
+                        p.remove(ch)
+        return new
+
+    def _dyn_id(self, p):
+        tc = next((a for a in p.iterancestors() if a.tag == q("tc")), None)
+        return self._dyn_ids.get(tc.getparent()) if tc is not None else None
 
     def _add_cell_runs(self):
         """Sel tabel yang masih kosong (di baris yang sebagian sudah terisi) -> isian."""
@@ -543,6 +620,7 @@ class FormDoc:
         self.para_ts = {}
         self.slots = []
         pmap = {}
+        rowctr = {}
         prev_text, prev_raw, section, counter = "", "", "", 0
         paras = list(self.root.iter(q("p")))
 
@@ -636,8 +714,13 @@ class FormDoc:
                         x.preset = True
 
             for si, s in enumerate(pslots):
-                s.id = f"{'c' if s.kind == 'check' else 'f'}{counter}"
-                counter += 1
+                did = self._dyn_id(p)
+                if did:        # id berdasarkan posisi (tabel, baris, isian) agar tak bergeser saat baris berubah
+                    s.id = f"d{did[0]}_{did[1]}_{rowctr.get(did, 0)}"
+                    rowctr[did] = rowctr.get(did, 0) + 1
+                else:
+                    s.id = f"{'c' if s.kind == 'check' else 'f'}{counter}"
+                    counter += 1
                 before = re.sub(r"[\s:.,;(]+$", "", s.before).strip()
                 if s.kind == "check":
                     fi = flat.index(s)
@@ -1443,12 +1526,18 @@ class FormDoc:
             except ValueError:
                 pass
         cls = "doc bordered" if self._has_borders(pr) else "doc"
-        out.append(f'<table class="{cls}" style="width:{wpct:.1f}%"><colgroup>')
+        dyn_i = next((i for i, d in enumerate(self.dyn) if d is tbl), None)
+        data_ids = {id(r) for r in self._data_rows(tbl)} if dyn_i is not None else set()
+        attr = ""
+        if dyn_i is not None:
+            cls += " dyn"
+            attr = f' data-dyn="{dyn_i}"'
+        out.append(f'<table class="{cls}"{attr} style="width:{wpct:.1f}%"><colgroup>')
         for g in grid:
             out.append(f'<col style="width:{g / tot * 100:.1f}%">')
         out.append("</colgroup>")
         for tr in tbl.findall(q("tr")):
-            out.append("<tr>")
+            out.append('<tr class="dr">' if id(tr) in data_ids else "<tr>")
             for tc in tr.findall(q("tc")):
                 tcpr = tc.find(q("tcPr"))
                 span, va = 1, "top"
@@ -1464,6 +1553,11 @@ class FormDoc:
                 out.append("</td>")
             out.append("</tr>")
         out.append("</table>")
+        if dyn_i is not None:
+            out.append(f'<div class="dctl" data-for="{dyn_i}">'
+                       '<button type="button" class="btn sec dadd">＋ Tambah baris</button>'
+                       '<button type="button" class="btn ghost ddel">− Kurangi baris</button>'
+                       '<span class="dcnt"></span></div>')
 
 
 # --------------------------------------------------------------------------
@@ -1615,7 +1709,15 @@ min-width:8ch;max-width:100%;border-radius:4px 4px 0 0;transition:background .12
 font-size:.9rem;opacity:0;pointer-events:none;transition:.25s;z-index:60}
 .toast.on{opacity:1;transform:translateX(-50%)}
 @media(max-width:700px){.paper{padding:22px 14px;font-size:11pt;margin-top:8px}.t{display:none}.btn .lbl{display:none}.pop{right:auto;left:0}}
-@media print{.bar,.hint,.toast{display:none}.paper{box-shadow:none;margin:0}}
+table.dyn tr.dr>td:first-child{position:relative}
+.rm{position:absolute;left:-30px;top:50%;transform:translateY(-50%);width:22px;height:22px;border-radius:50%;border:1px solid var(--line);background:#fff;color:#b42318;cursor:pointer;font:700 14px/1 system-ui,sans-serif;padding:0;opacity:.55}
+.rm:hover,.rm:focus-visible{opacity:1;background:#fef3f2}
+.dctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 14px}
+.dctl .btn{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:.85rem;padding:7px 12px}
+.dctl .btn[disabled]{opacity:.4;cursor:not-allowed}
+.dcnt{color:var(--mut);font:.82rem system-ui,sans-serif}
+@media(max-width:700px){.rm{left:-13px;width:18px;height:18px;font-size:12px}}
+@media print{.bar,.hint,.toast,.dctl,.rm{display:none}.paper{box-shadow:none;margin:0}}
 </style></head><body>
 <form id="f" method="post" action="{{ url_for('download') }}" autocomplete="off">
 <input type="hidden" name="_doc" value="{{ doc_b64 }}">
@@ -1640,8 +1742,9 @@ Ditemukan <b>{{ n_text }}</b> isian dan <b>{{ n_check }}</b> kotak centang.</div
 <div class="toast" id="toast"></div>
 <script>
 const form=document.getElementById('f');
-const texts=[...form.querySelectorAll('input.fld')];
-const checks=[...form.querySelectorAll('input.cb')];
+let texts=[],checks=[];
+function collect(){texts=[...form.querySelectorAll('input.fld')];checks=[...form.querySelectorAll('input.cb')]}
+collect();
 const prog=document.getElementById('prog'),meter=document.getElementById('meter');
 const toast=document.getElementById('toast');
 function say(m){toast.textContent=m;toast.classList.add('on');clearTimeout(say.t);say.t=setTimeout(()=>toast.classList.remove('on'),2200)}
@@ -1652,27 +1755,30 @@ function update(){
   prog.textContent=a+' dari '+texts.length+' isian terisi'+(checks.length?' · '+b+'/'+checks.length+' dicentang':'');
   meter.style.width=(texts.length?a/texts.length*100:100)+'%';
 }
-checks.forEach(c=>c.addEventListener('change',()=>{
+form.addEventListener('change',ev=>{
+  const c=ev.target;if(!c.classList||!c.classList.contains('cb'))return;
   const g=c.dataset.group;
   if(g&&c.checked)checks.forEach(o=>{if(o!==c&&o.dataset.group===g)o.checked=false});
   update();
-}));
+});
 const links={};
 texts.forEach(e=>{if(e.dataset.link){(links[e.dataset.link]=links[e.dataset.link]||[]).push(e)}});
-texts.forEach(e=>e.addEventListener('input',()=>{
+form.addEventListener('input',ev=>{
+  const e=ev.target;if(!e.classList||!e.classList.contains('fld'))return;
   const g=links[e.dataset.link];
   if(g){
     if(e===g[0]){g.slice(1).forEach(o=>{if(!o.dataset.touched)o.value=e.value})}
     else{if(e.value==='')delete e.dataset.touched;else e.dataset.touched='1'}
   }
   update();
-}));
+});
 Object.values(links).forEach(g=>g.slice(1).forEach(o=>{
   if(o.value==='')o.value=g[0].value;else if(o.value!==g[0].value)o.dataset.touched='1';
 }));
-texts.forEach(e=>e.addEventListener('keydown',ev=>{
-  if(ev.key==='Enter'){ev.preventDefault();const i=texts.indexOf(e);(texts[i+1]||e).focus()}
-}));
+form.addEventListener('keydown',ev=>{
+  const e=ev.target;if(ev.key!=='Enter'||!e.classList||!e.classList.contains('fld'))return;
+  ev.preventDefault();const i=texts.indexOf(e);(texts[i+1]||e).focus();
+});
 document.getElementById('nextEmpty').addEventListener('click',()=>{
   const cur=texts.indexOf(document.activeElement);
   const order=[...texts.slice(cur+1),...texts.slice(0,Math.max(cur,0)+1)];
@@ -1688,7 +1794,70 @@ document.getElementById('reset').addEventListener('click',()=>{
 // tutup menu pengaturan saat klik di luar
 document.addEventListener('click',ev=>{const d=document.querySelector('details.opts');if(d&&d.open&&!d.contains(ev.target))d.open=false});
 // umpan balik saat mengunduh
+// ---- tabel dinamis: tambah / kurangi baris ----
+const MAXR=30;
+function setNum(td,n){
+  const w=document.createTreeWalker(td,NodeFilter.SHOW_TEXT);let t,done=false;
+  while(t=w.nextNode()){
+    if(t.parentNode.closest('button'))continue;
+    if(!done&&t.nodeValue.trim()){t.nodeValue=String(n);done=true}
+    else if(done)t.nodeValue='';
+  }
+}
+function dynRows(tb){return [...tb.querySelectorAll('tr.dr')]}
+function addRm(tr){
+  const td=tr.cells[0];if(!td||td.querySelector('.rm'))return;
+  const b=document.createElement('button');b.type='button';b.className='rm';b.textContent='×';
+  b.title='Hapus baris ini';b.setAttribute('aria-label','Hapus baris ini');td.appendChild(b);
+}
+function refreshDyn(tb){
+  const rows=dynRows(tb),ctl=document.querySelector('.dctl[data-for="'+tb.dataset.dyn+'"]');
+  rows.forEach((tr,i)=>{if(tb.dataset.num==='1')setNum(tr.cells[0],i+1);addRm(tr);
+    const rm=tr.querySelector('.rm');if(rm)rm.disabled=rows.length<=1});
+  if(ctl){
+    ctl.querySelector('.dcnt').textContent=rows.length+' baris';
+    ctl.querySelector('.ddel').disabled=rows.length<=1;
+    ctl.querySelector('.dadd').disabled=rows.length>=MAXR;
+  }
+  collect();update();
+}
+function addRow(tb){
+  const rows=dynRows(tb);if(!rows.length||rows.length>=MAXR)return;
+  const nr=rows[rows.length-1].cloneNode(true);
+  nr.querySelectorAll('input').forEach(i=>{
+    if(i.type==='checkbox')i.checked=false;
+    else if(i.type==='date')i.value=i.dataset.def||'';
+    else i.value='';
+    delete i.dataset.touched;
+  });
+  rows[rows.length-1].after(nr);refreshDyn(tb);
+  const f=nr.querySelector('input.fld');if(f){f.scrollIntoView({block:'center',behavior:'smooth'});f.focus({preventScroll:true})}
+}
+function delRow(tb,tr){
+  const rows=dynRows(tb);if(rows.length<=1){say('Minimal 1 baris');return}
+  tr.remove();refreshDyn(tb);say('Baris dihapus');
+}
+document.querySelectorAll('table.dyn').forEach(tb=>{
+  const first=dynRows(tb)[0];
+  tb.dataset.num=first&&/^\\s*\\d+\\s*$/.test(first.cells[0].textContent)?'1':'0';
+  refreshDyn(tb);
+});
+form.addEventListener('click',ev=>{
+  const t=ev.target;
+  if(t.classList.contains('rm')){const tr=t.closest('tr'),tb=t.closest('table.dyn');if(tr&&tb)delRow(tb,tr);return}
+  const ctl=t.closest('.dctl');if(!ctl)return;
+  const tb=document.querySelector('table.dyn[data-dyn="'+ctl.dataset.for+'"]');if(!tb)return;
+  if(t.classList.contains('dadd'))addRow(tb);
+  else if(t.classList.contains('ddel')){const r=dynRows(tb);if(r.length>1)delRow(tb,r[r.length-1])}
+});
 form.addEventListener('submit',()=>{
+  document.querySelectorAll('table.dyn').forEach(tb=>{   // beri nama isian menurut posisi (tabel, baris, isian)
+    const T=tb.dataset.dyn,rows=dynRows(tb);
+    rows.forEach((tr,i)=>[...tr.querySelectorAll('input')].forEach((el,j)=>{el.name='d'+T+'_'+i+'_'+j}));
+    let h=form.querySelector('input[name="_dt'+T+'_n"]');
+    if(!h){h=document.createElement('input');h.type='hidden';h.name='_dt'+T+'_n';form.appendChild(h)}
+    h.value=rows.length;
+  });
   const b=document.getElementById('dl'),old=b.innerHTML;
   b.disabled=true;b.innerHTML='Menyiapkan…';
   setTimeout(()=>{b.disabled=false;b.innerHTML=old;say('File Word diunduh ✓')},2500);
@@ -1774,7 +1943,12 @@ def template_download(key):
 def download():
     try:
         data = base64.b64decode(request.form.get("_doc", ""), validate=True)
-        doc = FormDoc(data)
+        rows = {}
+        for k, v in request.form.items():       # jumlah baris tabel dinamis dari browser
+            m = re.fullmatch(r"_dt(\d+)_n", k)
+            if m and v.isdigit():
+                rows[int(m.group(1))] = int(v)
+        doc = FormDoc(data, rows)
     except Exception:
         return home_page("Sesi formulir tidak valid. Upload ulang file .docx.", 400)
     name = os.path.basename(request.form.get("_name") or "formulir.docx")
