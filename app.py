@@ -441,6 +441,7 @@ class FormDoc:
         """Teks tetap yang juga boleh diubah: isi tabel isian (nama mata kuliah, SKS, ...)
         dan teks di blok tanda tangan (jabatan, nama pejabat)."""
         self.edit_ps = {}                       # paragraf -> label
+        self.tab_ps = set()                     # paragraf nama bertab (mis. nama pemohon <tab> nama dosen)
         for tbl in self.root.iter(q("tbl")):
             rows = tbl.findall(q("tr"))
             if len(rows) < 2:
@@ -473,6 +474,9 @@ class FormDoc:
                 on = True
             if on and txt and self._editable_ok(p) and not TOKEN.search(txt) and not re.search(r"\w\s*:", txt):
                 self.edit_ps[p] = "Teks tanda tangan"
+            elif (on and txt and not TOKEN.search(txt) and not re.search(r"\w\s*:", txt)
+                  and self._tab_ok(p)):
+                self.tab_ps.add(p)
 
     def _editable_ok(self, p):
         for r in p.iter(q("r")):
@@ -480,6 +484,72 @@ class FormDoc:
                 if c.tag not in (q("rPr"), q("t")):
                     return False
         return bool(self._ptext(p).strip())
+
+    def _tab_ok(self, p):
+        """Paragraf berisi >=2 teks yang dipisah tab (hanya run teks/tab biasa)."""
+        for r in p.iter(q("r")):
+            for c in r:
+                if c.tag not in (q("rPr"), q("t"), q("tab")):
+                    return False
+        segs = [x for x in re.split(r"\t+", self._ptext_tabs(p)) if x.strip()]
+        return len(segs) >= 2 and "\t" in self._ptext_tabs(p)
+
+    def _tabbed_parts(self, p):
+        """Setiap teks yang dipisah tab menjadi isian yang bisa diubah (nama pemohon / dosen, dst)."""
+        text, owner, tinfo = [], [], {}
+        for r in p.iter(q("r")):
+            for c in r:
+                if c.tag == q("t"):
+                    tinfo[c] = len(text)
+                    for ch in c.text or "":
+                        text.append(ch)
+                        owner.append(c)
+                elif c.tag == q("tab"):
+                    text.append("\t")
+                    owner.append(None)
+        text = "".join(text)
+        prev, prev_cols = p.getprevious(), []
+        for _ in range(8):                               # lewati baris kosong (ruang tanda tangan)
+            if prev is None or (prev.tag == q("p") and self._ptext(prev).strip()):
+                break
+            prev = prev.getprevious()
+        if prev is not None and prev in self.tab_ps:
+            prev_cols = [c.strip() for c in re.split(r"\t+", self._ptext_tabs(prev)) if c.strip()]
+        ops, k = [], 0
+        for m in re.finditer(r"[^\t]+", text):
+            seg = m.group(0)
+            if not seg.strip():
+                continue
+            a = m.start() + len(seg) - len(seg.lstrip())
+            b = m.end() - (len(seg) - len(seg.rstrip()))
+            s = Slot("text", text[a:b])
+            s.prefill = s.preset = True
+            k += 1
+            s.label = f"Teks tanda tangan {k}"
+            if prev_cols and k <= len(prev_cols):       # baris di bawah judul kolom -> "Nama <judul>"
+                s.label = "Nama " + re.sub(r"[\s,:.]+$", "", prev_cols[k - 1])
+            ops.append((a, b, s))
+        if not ops:
+            return None
+        removed = [(a, b) for a, b, _ in ops]
+        starts = {a: [s] for a, _, s in ops}
+        res = {}
+        for t, g0 in tinfo.items():
+            parts, buf = [], ""
+            for i, ch in enumerate(t.text or ""):
+                gi = g0 + i
+                if gi in starts:
+                    if buf:
+                        parts.append(buf)
+                        buf = ""
+                    parts.extend(starts[gi])
+                if any(a <= gi < b for a, b in removed):
+                    continue
+                buf += ch
+            if buf:
+                parts.append(buf)
+            res[t] = parts
+        return res
 
     def _whole_parts(self, p, label):
         ts = list(p.iter(q("t")))
@@ -651,6 +721,8 @@ class FormDoc:
             if p in self.edit_ps:
                 over, es = self._whole_parts(p, self.edit_ps[p])
                 es.full = tc is not None
+            elif p in self.tab_ps:
+                over = self._tabbed_parts(p)
             elif tc is None and not has_br:
                 over = self._field_parts(p)
             pslots = []
