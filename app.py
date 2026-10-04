@@ -1449,39 +1449,71 @@ HOME = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Isi Formulir Word</title>
 <style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#1b2333;--mut:#667085;--line:#d9e0ee;--acc:#2f5fe3;--acc-d:#2349b8;--acc-l:#eef3ff;--err:#b42318;--errbg:#fef3f2}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1420;--card:#171e2e;--ink:#e8ecf5;--mut:#9aa5bd;--line:#2a3550;--acc:#6c93ff;--acc-d:#8aa9ff;--acc-l:#1b2644;--err:#ffb4a8;--errbg:#3a1a17}}
 *{box-sizing:border-box}
-body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:#f1f4f9;color:#1f2937;
-display:flex;min-height:100vh;align-items:center;justify-content:center;padding:20px}
-.card{background:#fff;max-width:560px;width:100%;border-radius:16px;padding:32px;box-shadow:0 6px 30px rgba(0,0,0,.08)}
-h1{margin:0 0 6px;font-size:1.5rem}
-p.sub{margin:0 0 22px;color:#6b7280;line-height:1.5}
-.drop{border:2px dashed #9db4e8;border-radius:12px;padding:38px 16px;text-align:center;cursor:pointer;background:#f6f9ff;transition:.15s}
-.drop.over,.drop:hover{background:#e8f0ff;border-color:#3b6fe0}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);
+min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px 16px}
+.card{background:var(--card);max-width:580px;width:100%;border-radius:20px;padding:36px 32px 28px;
+box-shadow:0 1px 2px rgba(16,24,40,.06),0 12px 40px rgba(16,24,40,.10);border:1px solid var(--line)}
+.logo{width:44px;height:44px;border-radius:12px;background:var(--acc-l);color:var(--acc);display:grid;place-items:center;margin-bottom:14px}
+h1{margin:0 0 6px;font-size:1.55rem;letter-spacing:-.01em}
+p.sub{margin:0 0 22px;color:var(--mut);line-height:1.55}
+.err{display:flex;gap:8px;background:var(--errbg);color:var(--err);padding:11px 14px;border-radius:10px;margin-bottom:16px;font-size:.93rem;line-height:1.45}
+.drop{display:block;border:2px dashed var(--line);border-radius:14px;padding:34px 18px;text-align:center;cursor:pointer;
+background:var(--acc-l);transition:border-color .15s,background .15s,transform .15s}
+.drop:hover,.drop.over,.drop:focus-within{border-color:var(--acc)}
+.drop.over{transform:scale(1.01)}
+.drop svg{color:var(--acc);margin-bottom:8px}
 .drop b{display:block;font-size:1.05rem;margin-bottom:4px}
-.drop span{color:#6b7280;font-size:.9rem}
-input[type=file]{display:none}
-.err{background:#fde8e8;color:#9b1c1c;padding:10px 14px;border-radius:8px;margin-bottom:16px}
-ol{color:#4b5563;line-height:1.7;padding-left:20px;margin:22px 0 0}
-a.sample{display:inline-block;margin-top:18px;color:#2563eb;text-decoration:none;font-weight:500}
+.drop span{color:var(--mut);font-size:.88rem}
+input[type=file]{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:22px 0 0;padding:0;list-style:none;counter-reset:s}
+.steps li{counter-increment:s;font-size:.86rem;color:var(--mut);line-height:1.4;background:var(--bg);border-radius:10px;padding:10px 10px 10px 38px;position:relative}
+.steps li::before{content:counter(s);position:absolute;left:10px;top:10px;width:20px;height:20px;border-radius:50%;background:var(--acc);color:#fff;
+font-size:.75rem;font-weight:700;display:grid;place-items:center}
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:20px;font-size:.85rem;color:var(--mut)}
+a.sample{color:var(--acc);text-decoration:none;font-weight:600;font-size:.92rem}
 a.sample:hover{text-decoration:underline}
+.busy{display:none;position:fixed;inset:0;background:rgba(15,20,32,.55);z-index:50;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:#fff;font-weight:600}
+.busy.on{display:flex}
+.spin{width:38px;height:38px;border-radius:50%;border:4px solid rgba(255,255,255,.3);border-top-color:#fff;animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media(max-width:520px){.card{padding:26px 18px 22px}.steps{grid-template-columns:1fr}}
 </style></head><body>
-<div class="card">
-<h1>📝 Isi Formulir Word</h1>
-<p class="sub">Upload formulir <b>.docx</b>, isi / edit isiannya dan centang kotaknya di browser, lalu unduh kembali sebagai Word.</p>
-{% if error %}<div class="err">{{ error }}</div>{% endif %}
+<main class="card">
+<div class="logo"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></div>
+<h1>Isi Formulir Word</h1>
+<p class="sub">Upload formulir <b>.docx</b>, isi atau edit di browser, lalu unduh kembali sebagai file Word dengan format yang tetap sama.</p>
+{% if error %}<div class="err" role="alert"><span>⚠️</span><span>{{ error }}</span></div>{% endif %}
 <form id="up" method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data">
-<label class="drop" id="drop" for="file"><b>Klik atau seret file .docx ke sini</b><span>Maksimal 3 MB</span></label>
-<input type="file" id="file" name="file" accept=".docx">
+<label class="drop" id="drop" for="file">
+<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4m0 0L7 9m5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+<b id="dt">Klik atau seret file .docx ke sini</b><span id="ds">Maksimal 3 MB</span>
+</label>
+<input type="file" id="file" name="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
 </form>
-<ol><li>Upload file Word</li><li>Isi semua isian &amp; centang</li><li>Klik <b>Unduh Word</b></li></ol>
-{% if has_sample %}<a class="sample" href="{{ url_for('sample') }}">▶ Coba dengan formulir contoh</a>{% endif %}
+<ol class="steps"><li>Upload file Word</li><li>Isi &amp; centang isiannya</li><li>Klik <b>Unduh Word</b></li></ol>
+<div class="row">
+<span>🔒 File tidak disimpan di server.</span>
+{% if has_sample %}<a class="sample" href="{{ url_for('sample') }}">Coba dengan formulir contoh →</a>{% endif %}
 </div>
+</main>
+<div class="busy" id="busy"><div class="spin"></div><div>Membaca formulir…</div></div>
 <script>
-const f=document.getElementById('file'),d=document.getElementById('drop'),form=document.getElementById('up');
-f.addEventListener('change',()=>{if(f.files.length)form.submit()});
+const f=document.getElementById('file'),d=document.getElementById('drop'),form=document.getElementById('up'),busy=document.getElementById('busy');
+function go(){
+  const file=f.files[0]; if(!file)return;
+  const t=document.getElementById('dt'),s=document.getElementById('ds');
+  if(!/\\.docx$/i.test(file.name)){t.textContent='Hanya file .docx yang didukung';s.textContent='Simpan ulang .doc sebagai .docx di Word';f.value='';return}
+  if(file.size>3*1024*1024){t.textContent='File terlalu besar';s.textContent='Maksimal 3 MB';f.value='';return}
+  t.textContent=file.name;s.textContent='Membaca…';busy.classList.add('on');form.submit();
+}
+f.addEventListener('change',go);
 ['dragenter','dragover'].forEach(e=>d.addEventListener(e,ev=>{ev.preventDefault();d.classList.add('over')}));
 ['dragleave','drop'].forEach(e=>d.addEventListener(e,ev=>{ev.preventDefault();d.classList.remove('over')}));
-d.addEventListener('drop',ev=>{if(ev.dataTransfer.files.length){f.files=ev.dataTransfer.files;form.submit()}});
+d.addEventListener('drop',ev=>{if(ev.dataTransfer.files.length){f.files=ev.dataTransfer.files;go()}});
+window.addEventListener('pageshow',()=>busy.classList.remove('on'));
 </script></body></html>"""
 
 FORM = """<!doctype html>
@@ -1489,71 +1521,97 @@ FORM = """<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Isi: {{ name }}</title>
 <style>
+:root{--bg:#e9edf5;--bar:#ffffff;--ink:#1b2333;--mut:#667085;--line:#d9e0ee;--acc:#2f5fe3;--acc-l:#eef3ff;--ok:#16a34a;--okbg:#e3f6e8;--warnbg:#fff4c2;--warnbg2:#ffe98a}
 *{box-sizing:border-box}
-body{margin:0;background:#e5e9f0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-.bar{position:sticky;top:0;z-index:10;background:#1e293b;color:#fff;padding:10px 16px;display:flex;gap:12px;
-align-items:center;flex-wrap:wrap;box-shadow:0 2px 10px rgba(0,0,0,.25)}
-.bar .t{font-weight:600;max-width:22ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bar .p{font-size:.85rem;color:#cbd5e1;flex:1;min-width:180px}
-.btn{border:0;border-radius:8px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer;text-decoration:none;font-size:.92rem}
-.btn.main{background:#22c55e;color:#052e16}.btn.main:hover{background:#4ade80}
-.btn.sec{background:#334155;color:#fff}.btn.sec:hover{background:#475569}
-.opt{font-size:.85rem;color:#e2e8f0;display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap}
-.opt input{accent-color:#22c55e;width:1.05em;height:1.05em}
-.hint{max-width:816px;margin:14px auto 0;padding:0 12px;color:#475569;font-size:.9rem}
-.paper{background:#fff;max-width:816px;margin:14px auto 40px;padding:76px;box-shadow:0 4px 24px rgba(0,0,0,.15);
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.bar{position:sticky;top:0;z-index:10;background:var(--bar);border-bottom:1px solid var(--line);box-shadow:0 2px 12px rgba(16,24,40,.07)}
+.bar-in{max-width:980px;margin:0 auto;padding:10px 16px;display:flex;gap:10px 14px;align-items:center;flex-wrap:wrap}
+.back{display:grid;place-items:center;width:36px;height:36px;border-radius:9px;color:var(--mut);text-decoration:none;border:1px solid var(--line)}
+.back:hover{background:var(--acc-l);color:var(--acc)}
+.t{font-weight:600;max-width:26ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.prog{flex:1;min-width:170px}
+.prog small{display:block;font-size:.8rem;color:var(--mut);margin-bottom:4px}
+.meter{height:6px;border-radius:99px;background:var(--line);overflow:hidden}
+.meter i{display:block;height:100%;width:0;background:var(--ok);transition:width .25s}
+.btn{border:0;border-radius:9px;padding:9px 14px;font:inherit;font-weight:600;cursor:pointer;text-decoration:none;font-size:.9rem;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.btn:focus-visible,.back:focus-visible,summary:focus-visible{outline:3px solid #9db4ff;outline-offset:2px}
+.btn.main{background:var(--acc);color:#fff}.btn.main:hover{background:#2349b8}
+.btn.main[disabled]{opacity:.7;cursor:wait}
+.btn.sec{background:var(--acc-l);color:var(--acc)}.btn.sec:hover{background:#dde7ff}
+.btn.ghost{background:transparent;color:var(--mut);border:1px solid var(--line)}.btn.ghost:hover{background:#f3f5fa}
+details.opts{position:relative}
+details.opts summary{list-style:none;cursor:pointer;border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:.9rem;font-weight:600;color:var(--mut);user-select:none}
+details.opts summary::-webkit-details-marker{display:none}
+details.opts[open] summary{background:var(--acc-l);color:var(--acc)}
+.pop{position:absolute;right:0;top:calc(100% + 6px);width:290px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;box-shadow:0 10px 30px rgba(16,24,40,.16);z-index:20}
+.pop label{display:flex;gap:9px;align-items:flex-start;padding:7px 4px;cursor:pointer;font-size:.88rem;line-height:1.35}
+.pop label span small{display:block;color:var(--mut);font-size:.78rem}
+.pop input{accent-color:var(--acc);width:1.1em;height:1.1em;margin-top:2px}
+.hint{max-width:816px;margin:14px auto 0;padding:0 14px;color:var(--mut);font-size:.88rem;line-height:1.5}
+.hint mark{background:var(--warnbg);padding:0 4px;border-radius:3px}
+.paper{background:#fff;max-width:816px;margin:12px auto 48px;padding:76px;box-shadow:0 4px 24px rgba(16,24,40,.14);border-radius:3px;
 font-family:"Times New Roman",Times,serif;font-size:12pt;color:#000}
 .paper p{white-space:pre-wrap;word-wrap:break-word}
 table.doc{border-collapse:collapse;table-layout:fixed}
 table.doc td{padding:1px 4px;overflow-wrap:anywhere}
 table.bordered td{border:1px solid #000}
-.fld{font:inherit;color:#0b3d91;border:0;border-bottom:1.5px dotted #777;background:#fff7cc;padding:0 4px;outline:none;
-min-width:8ch;max-width:100%;border-radius:3px 3px 0 0}
-.fld::placeholder{color:#b8a24a;font-size:.8em;font-style:italic}
-.fld:focus{background:#ffee99;border-bottom:1.5px solid #2563eb}
-.fld.filled{background:#e6f6e9;border-bottom-color:#16a34a}
+.fld{font:inherit;color:#0b3d91;border:0;border-bottom:1.5px dotted #8a8f99;background:var(--warnbg);padding:1px 5px;outline:none;
+min-width:8ch;max-width:100%;border-radius:4px 4px 0 0;transition:background .12s}
+.fld:hover{background:var(--warnbg2)}
+.fld::placeholder{color:#a8923a;font-size:.78em;font-style:italic}
+.fld:focus{background:#fff;border-bottom:2px solid var(--acc);box-shadow:0 0 0 3px rgba(47,95,227,.2)}
+.fld.filled{background:var(--okbg);border-bottom-color:var(--ok)}
+.fld.filled:focus{background:#fff}
 .fld.full{width:100%;display:block}
 .paper .fld{text-align:inherit}
-td .fld.full{text-align:inherit;padding:0 2px}
 .fld.date{min-width:0;width:11.5em;font-size:.9em}
-.cb{width:1.15em;height:1.15em;vertical-align:-.18em;accent-color:#2563eb;cursor:pointer;margin:0 2px}
-@media(max-width:700px){.paper{padding:22px 14px;font-size:11pt}.bar .t{display:none}}
-@media print{.bar,.hint{display:none}.paper{box-shadow:none;margin:0}}
+.cb{width:1.15em;height:1.15em;vertical-align:-.18em;accent-color:var(--acc);cursor:pointer;margin:0 3px}
+.toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%) translateY(20px);background:#1b2333;color:#fff;padding:10px 16px;border-radius:10px;
+font-size:.9rem;opacity:0;pointer-events:none;transition:.25s;z-index:60}
+.toast.on{opacity:1;transform:translateX(-50%)}
+@media(max-width:700px){.paper{padding:22px 14px;font-size:11pt;margin-top:8px}.t{display:none}.btn .lbl{display:none}.pop{right:auto;left:0}}
+@media print{.bar,.hint,.toast{display:none}.paper{box-shadow:none;margin:0}}
 </style></head><body>
 <form id="f" method="post" action="{{ url_for('download') }}" autocomplete="off">
 <input type="hidden" name="_doc" value="{{ doc_b64 }}">
 <input type="hidden" name="_name" value="{{ name }}">
-<div class="bar">
-  <div class="t">📄 {{ name }}</div>
-  <div class="p" id="prog"></div>
-  <label class="opt" title="Tulisan dipaskan di panjang titik-titik, font mengecil otomatis jika terlalu panjang"><input type="checkbox" name="fit_dots" value="1" checked> Pas di titik-titik</label>
-  <label class="opt" title="Rapatkan spasi/margin/font seperlunya agar seluruh formulir muat 1 halaman"><input type="checkbox" name="fit_page" value="1"> Muat 1 halaman</label>
-  <a class="btn sec" href="{{ url_for('home') }}">Ganti file</a>
-  <button type="button" class="btn sec" id="reset">Kosongkan</button>
-  <button type="submit" class="btn main">⬇ Unduh Word</button>
-</div>
-<div class="hint">Klik bagian <mark style="background:#fff7cc">berwarna kuning</mark> untuk mengisi. Tekan <b>Enter</b> untuk pindah ke isian berikutnya.
+<header class="bar"><div class="bar-in">
+  <a class="back" href="{{ url_for('home') }}" title="Ganti file" aria-label="Ganti file"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></a>
+  <div class="t" title="{{ name }}">{{ name }}</div>
+  <div class="prog"><small id="prog"></small><div class="meter"><i id="meter"></i></div></div>
+  <button type="button" class="btn sec" id="nextEmpty" title="Lompat ke isian yang belum terisi">↓ <span class="lbl">Isian kosong</span></button>
+  <details class="opts"><summary>⚙ <span class="lbl">Pengaturan</span></summary>
+    <div class="pop">
+      <label><input type="checkbox" name="fit_dots" value="1" checked><span>Pas di titik-titik<small>Tulisan dipaskan pada garis titik; font mengecil otomatis jika terlalu panjang.</small></span></label>
+      <label><input type="checkbox" name="fit_page" value="1"><span>Muat 1 halaman<small>Padatkan spasi/margin/font agar semua muat satu halaman. Biarkan mati untuk mengikuti halaman Word asli.</small></span></label>
+    </div></details>
+  <button type="button" class="btn ghost" id="reset">Kosongkan</button>
+  <button type="submit" class="btn main" id="dl">⬇ <span class="lbl">Unduh Word</span></button>
+</div></header>
+<div class="hint">Klik bagian <mark>berwarna kuning</mark> untuk mengisi atau mengubah; <b>Enter</b> pindah ke isian berikutnya.
 Ditemukan <b>{{ n_text }}</b> isian dan <b>{{ n_check }}</b> kotak centang.</div>
 <div class="paper">{{ body|safe }}</div>
 </form>
+<div class="toast" id="toast"></div>
 <script>
 const form=document.getElementById('f');
 const texts=[...form.querySelectorAll('input.fld')];
 const checks=[...form.querySelectorAll('input.cb')];
-const prog=document.getElementById('prog');
+const prog=document.getElementById('prog'),meter=document.getElementById('meter');
+const toast=document.getElementById('toast');
+function say(m){toast.textContent=m;toast.classList.add('on');clearTimeout(say.t);say.t=setTimeout(()=>toast.classList.remove('on'),2200)}
 function update(){
   let a=0,b=0;
   texts.forEach(e=>{const on=e.value.trim()!=='';e.classList.toggle('filled',on);if(on)a++});
   checks.forEach(e=>{if(e.checked)b++});
-  prog.textContent='Terisi '+a+'/'+texts.length+' isian · '+b+' kotak dicentang';
+  prog.textContent=a+' dari '+texts.length+' isian terisi'+(checks.length?' · '+b+'/'+checks.length+' dicentang':'');
+  meter.style.width=(texts.length?a/texts.length*100:100)+'%';
 }
-// centang saling-eksklusif untuk grup (pilihan tunggal)
 checks.forEach(c=>c.addEventListener('change',()=>{
   const g=c.dataset.group;
   if(g&&c.checked)checks.forEach(o=>{if(o!==c&&o.dataset.group===g)o.checked=false});
   update();
 }));
-// sinkron otomatis (mis. Nama & NIM di beberapa tempat)
 const links={};
 texts.forEach(e=>{if(e.dataset.link){(links[e.dataset.link]=links[e.dataset.link]||[]).push(e)}});
 texts.forEach(e=>e.addEventListener('input',()=>{
@@ -1564,18 +1622,31 @@ texts.forEach(e=>e.addEventListener('input',()=>{
   }
   update();
 }));
-// nilai awal yang sudah ada: salin ke isian terkait yang masih kosong, tandai yang sengaja beda
 Object.values(links).forEach(g=>g.slice(1).forEach(o=>{
   if(o.value==='')o.value=g[0].value;else if(o.value!==g[0].value)o.dataset.touched='1';
 }));
-// Enter -> isian berikutnya
 texts.forEach(e=>e.addEventListener('keydown',ev=>{
   if(ev.key==='Enter'){ev.preventDefault();const i=texts.indexOf(e);(texts[i+1]||e).focus()}
 }));
+document.getElementById('nextEmpty').addEventListener('click',()=>{
+  const cur=texts.indexOf(document.activeElement);
+  const order=[...texts.slice(cur+1),...texts.slice(0,Math.max(cur,0)+1)];
+  const t=order.find(e=>e.value.trim()==='');
+  if(!t){say('Semua isian sudah terisi ✓');return}
+  t.scrollIntoView({block:'center',behavior:'smooth'});t.focus({preventScroll:true});
+});
 document.getElementById('reset').addEventListener('click',()=>{
   if(!confirm('Kosongkan semua isian dan centang?'))return;
   texts.forEach(e=>{e.value=e.type==='date'?'{{ today }}':'';delete e.dataset.touched});
-  checks.forEach(e=>e.checked=false);update();
+  checks.forEach(e=>e.checked=false);update();say('Semua isian dikosongkan');
+});
+// tutup menu pengaturan saat klik di luar
+document.addEventListener('click',ev=>{const d=document.querySelector('details.opts');if(d&&d.open&&!d.contains(ev.target))d.open=false});
+// umpan balik saat mengunduh
+form.addEventListener('submit',()=>{
+  const b=document.getElementById('dl'),old=b.innerHTML;
+  b.disabled=true;b.innerHTML='Menyiapkan…';
+  setTimeout(()=>{b.disabled=false;b.innerHTML=old;say('File Word diunduh ✓')},2500);
 });
 update();
 </script></body></html>"""
