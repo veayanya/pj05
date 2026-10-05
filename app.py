@@ -967,14 +967,14 @@ class FormDoc:
             try:
                 d = date.fromisoformat(v)
             except ValueError:
-                return s.orig
+                return "" if getattr(self, "drop_empty", False) else s.orig
             return f"{d.day} {BULAN[d.month - 1]} {d.year}"
         if s.kind == "date":
             a, mid, b = s.sub
             try:
                 d = date.fromisoformat(v)
             except ValueError:
-                return a.orig + mid + b.orig
+                return "" if getattr(self, "drop_empty", False) else a.orig + mid + b.orig
             if 2000 <= d.year <= 2099:
                 return f"{d.day} {BULAN[d.month - 1]}{mid}{d.year % 100:02d}"
             return f"{d.day} {BULAN[d.month - 1]} {d.year}"
@@ -1140,6 +1140,9 @@ class FormDoc:
 
     def fill(self, form, fit_dots=True, drop_empty=False):
         self.drop_empty = drop_empty
+        if drop_empty:
+            fit_dots = False                    # tanpa titik-titik penuntun di belakang isian
+            self._signature_gap(2)
         for p, ts in self.para_ts.items():
             cont = self._avail_pt(p)
             ppr = p.find(q("pPr"))
@@ -1151,6 +1154,86 @@ class FormDoc:
                 self._fill_run(r, p, form, fit_dots, cont, st)
             if st["tabs"]:
                 self._add_tabs(p, st["tabs"])
+        if drop_empty:
+            self._drop_empty_paras()
+
+    # ----- merapikan hasil tanpa titik-titik -------------------------------
+    def _drop_empty_paras(self):
+        """Paragraf yang semula hanya titik-titik (mis. baris Catatan) dan kini kosong dibuang."""
+        for p in list(self.para_ts):
+            if any(a.tag == q("tc") for a in p.iterancestors()) or p.getparent() is None:
+                continue
+            if any(c.tag in (q("drawing"), q("tab"), q("br"), q("pict"), q("object"), q("sectPr"))
+                   for c in p.iter()):
+                continue
+            ppr = p.find(q("pPr"))
+            if ppr is not None and ppr.find(q("sectPr")) is not None:
+                continue
+            if "".join(t.text or "" for t in p.iter(q("t"))).strip():
+                continue
+            orig = "".join(x if isinstance(x, str) else x.orig
+                           for t in self.para_ts[p] for x in self.tparts.get(t, [])).strip()
+            if orig and re.fullmatch(r"[.…_\s]+", orig):
+                p.getparent().remove(p)
+
+    @staticmethod
+    def _keep_next(p):
+        ppr = p.find(q("pPr"))
+        if ppr is None:
+            ppr = etree.SubElement(p, q("pPr"))
+            p.insert(0, ppr)
+        if ppr.find(q("keepNext")) is None:
+            kn = etree.Element(q("keepNext"))
+            ps = ppr.find(q("pStyle"))
+            if ps is not None:
+                ps.addnext(kn)
+            else:
+                ppr.insert(0, kn)
+
+    # ----- jarak tanda tangan ---------------------------------------------
+    def _signature_gap(self, n=2):
+        """Pastikan ada tepat n baris kosong antara judul tanda tangan ("Mahasiswa,", "Ketua Program
+        Studi") dan baris nama "( ... )" supaya ruang tanda tangan rapi."""
+        for p in list(self.root.iter(q("p"))):
+            if any(a.tag == q("tc") for a in p.iterancestors()):
+                continue
+            txt = "".join(t.text or "" for t in p.iter(q("t"))).strip()
+            if not re.fullmatch(r"\(.*\)", txt):
+                continue
+            blanks, prev = [], p.getprevious()
+            while prev is not None and prev.tag == q("p") and not "".join(
+                    t.text or "" for t in prev.iter(q("t"))).strip() and not list(prev.iter(q("drawing"))):
+                blanks.append(prev)
+                prev = prev.getprevious()
+            if prev is None or prev.tag != q("p"):
+                continue
+            title = "".join(t.text or "" for t in prev.iter(q("t"))).strip()
+            if not title or len(title) > 60:
+                continue
+            for b in blanks[n:]:
+                b.getparent().remove(b)
+            for _ in range(n - len(blanks)):
+                e = deepcopy(p)
+                for el in e.iter(etree.Element):
+                    for a in ("paraId", "textId"):
+                        el.attrib.pop(f"{{{W14_NS}}}{a}", None)
+                for ch in list(e):
+                    if ch.tag != q("pPr"):
+                        e.remove(ch)
+                p.addprevious(e)
+            # satu blok: baris tanggal/kota, judul, ruang tanda tangan, dan nama tidak terpisah halaman
+            chain = [prev]
+            q_ = prev.getprevious()
+            if q_ is not None and q_.tag == q("p") and re.match(
+                    r"[A-Za-z .]{2,30},\s", "".join(t.text or "" for t in q_.iter(q("t"))).strip() + " "):
+                chain.append(q_)
+            node = prev
+            while node is not None and node is not p:
+                chain.append(node)
+                node = node.getnext()
+            for c in chain + [p]:
+                if c.tag == q("p"):
+                    self._keep_next(c)
 
     # ----- pas satu halaman ------------------------------------------------
     def _tbl_spacing(self, tbl):
